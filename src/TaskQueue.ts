@@ -12,7 +12,7 @@ export class TaskQueue extends EventEmitter {
         this.running = 0;
         this.queue = [];
     }
-    
+
     next() {
         while (this.running < this.concurrency && this.queue.length > 0) {
             const task = this.queue.shift();
@@ -24,12 +24,10 @@ export class TaskQueue extends EventEmitter {
         }
     }
 
-    runTask(task: Function) {
-        return new Promise((resolve, reject) => {
-            this.queue.push(() => {
-                return task().then(resolve).catch(reject);
-            })
-            process.nextTick(this.next.bind(this));
+    async runTask(task: Function) {
+        await this.queue.push(async()=>{
+            await task();
         });
+        process.nextTick(this.next.bind(this));
     }
 }
