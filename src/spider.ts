@@ -7,23 +7,6 @@ import { promisify } from "util";
 
 const mkdirpPromises = promisify(fs.mkdir);
 
-function saveFile(fileName: string, contents: string) {
-    let promise = Promise.resolve();
-
-    fsPromise.writeFile(fileName, contents)
-        .then((resolve) => {
-            console.log(`Downloaded and saved: ${fileName}`)
-            return resolve;
-        });
-
-    // fs.mkdir(path.dirname(fileName), (err) => {
-    //     if (err && err.code !== 'EEXIST')
-    //         return cb(err);
-
-    //     fs.writeFile(fileName, contents, cb);
-    // });
-}
-
 function download(url: string, filename: string) {
     console.log(`Downloading "${url}"`);
     let content: string;
