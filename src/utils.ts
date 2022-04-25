@@ -37,3 +37,20 @@ export function getPageLinks(currentUrl: string, body: any) {
         })
         .filter(Boolean)
 }
+
+export function promisify(callbackBasedApi : Function) {
+    return function promisified(...args : any[]) {
+        return new Promise((resolve, reject) => { 
+            const newArgs = [
+                ...args,
+                function (err : Error, result : any) { 
+                    if (err) {
+                        return reject(err)
+                    }
+                    resolve(result)
+                }
+            ]
+            callbackBasedApi(...newArgs) 
+        })
+    }
+}

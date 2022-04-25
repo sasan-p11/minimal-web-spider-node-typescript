@@ -1,78 +1,65 @@
-import fs, { NoParamCallback } from 'fs'
+import fs, { NoParamCallback, promises as fsPromise } from 'fs'
 import path from 'path'
 import superagent, { Response } from 'superagent';
 import { urlToFilename, getPageLinks } from './utils'
-import { TaskQueue } from './TaskQueue'
 import mkdirp from 'mkdirp'
+import { promisify } from "util";
 
+const mkdirpPromises = promisify(fs.mkdir);
 
-function saveFile(fileName: string, contents: string, cb: NoParamCallback) {
-    fs.mkdir(path.dirname(fileName), (err) => {
-        if (err && err.code !== 'EEXIST') 
-            return cb(err);
+function saveFile(fileName: string, contents: string) {
+    let promise = Promise.resolve();
 
-        fs.writeFile(fileName, contents, cb);
-    });
-}
-
-function download(url: string, filename: string, cb: Function) {
-    console.log(`Downloading "${url}"`);
-    superagent.get(url).end((err: Error, res: Response) => {
-        if (err)
-            return cb(err);
-
-        saveFile(filename, res.text, err => {
-            if (err)
-                return cb(err);
-
-            console.log(`Downloaded and saved: ${url}`)
-            cb(null, res.text)
+    fsPromise.writeFile(fileName, contents)
+        .then((resolve) => {
+            console.log(`Downloaded and saved: ${fileName}`)
+            return resolve;
         });
-    });
+
+    // fs.mkdir(path.dirname(fileName), (err) => {
+    //     if (err && err.code !== 'EEXIST')
+    //         return cb(err);
+
+    //     fs.writeFile(fileName, contents, cb);
+    // });
 }
 
-function spiderLinks(currentUrl: string, body: any, nesting: number, queue: TaskQueue) {
+function download(url: string, filename: string) {
+    console.log(`Downloading "${url}"`);
+    let content: string;
+    return superagent.get(url)
+        .then((res: Response) => {
+            content = res.text;
+            return mkdirpPromises(path.dirname(filename));
+        })
+        .then(() => fsPromise.writeFile(filename, content))
+        .then(() => {
+            console.log(`Downloaded and saved: ${url}`)
+            return content;
+        });
+}
+
+function spiderLinks(currentUrl: string, content: string, nesting: number) {
+    let promise = Promise.resolve();
     if (nesting === 0)
-        return;
+        return promise;
 
-    const links: string[] = getPageLinks(currentUrl, body);
-    if (links.length === 0)
-        return;
+    const links = getPageLinks(currentUrl, content);
 
-    links.forEach(link => spider(link, nesting - 1, queue));
-}
-
-function spiderTask(url : string, nesting : number, queue : TaskQueue, cb : Function) {
-    const filename = urlToFilename(url)
-    fs.readFile(filename, 'utf8', (err, fileContent) => {
-        if (err) {
-            if (err.code !== 'ENOENT') {
-                return cb(err)
-            }
-
-            return download(url, filename, (err :Error, requestContent : any) => {
-                if (err) {
-                    return cb(err)
-                }
-
-                spiderLinks(url, requestContent, nesting, queue)
-                return cb()
-            })
-        }
-
-        spiderLinks(url, fileContent, nesting, queue)
-        return cb()
-    })
+    links.forEach(link => {
+        promise = promise.then(() => spider(link, nesting - 1));
+    });
 }
 
 const spidering = new Set()
-export function spider(url: string, nesting: number, queue: TaskQueue) {
-    if (spidering.has(url)) {
-        return
-    }
-
-    spidering.add(url)
-    queue.push((done: Function) => {
-        spiderTask(url, nesting, queue, done)
-    })
+export function spider(url: string, nesting: number) {
+    const filename = urlToFilename(url);
+    return fsPromise.readFile(filename, 'utf8')
+        .catch(err => {
+            if (err.code !== 'ENOENT') {
+                throw err;
+            }
+            return download(url, filename);
+        })
+        .then(content => spiderLinks(url, content, nesting));
 }
