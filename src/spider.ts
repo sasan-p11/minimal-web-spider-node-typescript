@@ -1,11 +1,12 @@
-import fs, { NoParamCallback, promises as fsPromise } from 'fs'
+import fs, { promises as fsPromise } from 'fs'
 import path from 'path'
 import superagent, { Response } from 'superagent';
 import { urlToFilename, getPageLinks } from './utils'
-import mkdirp from 'mkdirp'
 import { promisify } from "util";
+import { TaskQueue } from './TaskQueue';
+import mkdirp from 'mkdirp'
 
-const mkdirpPromises = promisify(fs.mkdir);
+const mkdirpPromises = promisify(mkdirp);
 
 function download(url: string, filename: string) {
     console.log(`Downloading "${url}"`);
@@ -13,36 +14,57 @@ function download(url: string, filename: string) {
     return superagent.get(url)
         .then((res: Response) => {
             content = res.text;
-            return mkdirpPromises(path.dirname(filename));
+            return fsPromise.mkdir(path.dirname(filename));
         })
-        .then(() => fsPromise.writeFile(filename, content))
+        .then(() => {
+            console.log("sasan");
+            fsPromise.writeFile(filename, content);
+        })
         .then(() => {
             console.log(`Downloaded and saved: ${url}`)
             return content;
         });
 }
 
-function spiderLinks(currentUrl: string, content: string, nesting: number) {
-    let promise = Promise.resolve();
+const spidering = new Set()
+function spiderTask(url: string, nesting: number, queue: TaskQueue) {
+    if (spidering.has(url)) {
+        return Promise.resolve()
+    }
+    spidering.add(url);
+
+    const filename = urlToFilename(url)
+
+    return queue
+        .runTask(() => {
+            return fsPromise.readFile(filename, 'utf8')
+                .catch((err) => {
+                    if (err.code !== 'ENOENT') {
+                       
+                        throw err
+                    }
+                    
+                    // The file doesn't exist, so let’s download it
+                    return download(url, filename)
+                })
+        })
+        .then(content => {
+            spiderLinks(url, content, nesting, queue);
+        });
+}
+
+function spiderLinks(currentUrl: string, content : any , nesting: number, queue: TaskQueue) {
     if (nesting === 0)
-        return promise;
+        return Promise.resolve();
 
     const links = getPageLinks(currentUrl, content);
 
-    links.forEach(link => {
-        promise = promise.then(() => spider(link, nesting - 1));
-    });
+    const promises: any = links.map(link => spiderTask(link, nesting - 1, queue))
+
+    return Promise.all(promises)
 }
 
-const spidering = new Set()
-export function spider(url: string, nesting: number) {
-    const filename = urlToFilename(url);
-    return fsPromise.readFile(filename, 'utf8')
-        .catch(err => {
-            if (err.code !== 'ENOENT') {
-                throw err;
-            }
-            return download(url, filename);
-        })
-        .then(content => spiderLinks(url, content, nesting));
+export function spider(url: string, nesting: number, concurrency: number) {
+    const queue = new TaskQueue(concurrency)
+    return spiderTask(url, nesting, queue)
 }
