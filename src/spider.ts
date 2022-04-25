@@ -14,7 +14,7 @@ function download(url: string, filename: string) {
     return superagent.get(url)
         .then((res: Response) => {
             content = res.text;
-            return fsPromise.mkdir(path.dirname(filename));
+            return fsPromise.mkdir(path.dirname(filename), { mode: 0o755 });
         })
         .then(() => {
             console.log("sasan");
